@@ -1,0 +1,12 @@
+# requirements.txt
+ccxt==4.3.0
+pandas==2.2.0
+pandas_ta==0.3.14b0
+numpy==1.26.0
+python-dotenv==1.0.0
+requests==2.31.0
+sqlite3
+langchain==0.3.0
+langchain-groq==0.2.0
+langgraph==0.2.0
+langsmith==0.1.0
