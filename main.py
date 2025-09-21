@@ -606,7 +606,7 @@ optimize_prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
-profit_prompt_content = (profit_prompt.template if isinstance(profit_prompt, (PromptTemplate, ChatPromptTemplate)) else str(profit_prompt))
+##profit_prompt_content = (profit_prompt.template if isinstance(profit_prompt, (PromptTemplate, ChatPromptTemplate)) else str(profit_prompt))
 signal_prompt_content = (signal_prompt.template if isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else str(signal_prompt))
 risk_prompt_content = (risk_prompt.template if isinstance(risk_prompt, (PromptTemplate, ChatPromptTemplate)) else str(risk_prompt))
 executor_prompt_content = (executor_prompt.template if isinstance(executor_prompt, (PromptTemplate, ChatPromptTemplate)) else str(executor_prompt))
@@ -827,4 +827,5 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
