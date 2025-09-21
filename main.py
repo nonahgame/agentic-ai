@@ -25,6 +25,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langsmith import Client
 from langchain_core.messages import SystemMessage
+from pydantic import BaseModel
+from typing_extensions import Annotated
 
 # Load environment variables
 load_dotenv()
@@ -34,11 +36,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants from .env
-SYMBOL = os.getenv("SYMBOL", "BTC/USDT")
+SYMBOL = os.getenv("SYMBOL", "SOL/USDT")
 TIMEFRAME = os.getenv("TIMEFRAME", "5m")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 15.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 5.0))
-AMOUNTS = float(os.getenv("AMOUNTS", 11.0))
+AMOUNTS = float(os.getenv("AMOUNTS", 11.01))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "rnn_bot.db")
@@ -514,23 +516,23 @@ def optimize_strategy(state: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 # State
-class TradingState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
+class TradingState(BaseModel):
+    messages: Annotated[List[BaseMessage], operator.add]
     symbol: str
     portfolio: Dict[str, Any]
     indicators: Dict[str, Any]
     signal: str
     risk_approved: bool
-    stop_loss: Optional[float]
-    take_profit: Optional[float]
-    order_id: Optional[str]
-    position: Optional[str]
-    buy_price: Optional[float]
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    order_id: Optional[str] = None
+    position: Optional[str] = None
+    buy_price: Optional[float] = None
     last_sell_profit: float
     total_return_profit: float
     tracking_enabled: bool
     tracking_has_buy: bool
-    tracking_buy_price: Optional[float]
+    tracking_buy_price: Optional[float] = None
     strategy_id: str
     backtest_results: Dict[str, Any]
     next: str
@@ -799,7 +801,7 @@ if __name__ == "__main__":
     config = {"configurable": {"thread_id": "crypto_trader_1"}}
     initial_state = {
         "symbol": SYMBOL,
-        "messages": [HumanMessage(content="Start monitoring BTC/USDT for trades.")],
+        "messages": [HumanMessage(content="Start monitoring SOL/USDT for trades.")],
         "last_sell_profit": 0.0,
         "total_return_profit": 0.0,
         "tracking_enabled": True,
@@ -817,5 +819,6 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
 
