@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
@@ -606,7 +606,14 @@ optimize_prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
-signal_prompt = signal_prompt.template if isinstance(signal_prompt, PromptTemplate) else str(signal_prompt)
+profit_prompt_content = (profit_prompt.template if isinstance(profit_prompt, (PromptTemplate, ChatPromptTemplate)) else str(profit_prompt))
+signal_prompt_content = (signal_prompt.template if isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else str(signal_prompt))
+risk_prompt_content = (risk_prompt.template if isinstance(risk_prompt, (PromptTemplate, ChatPromptTemplate)) else str(risk_prompt))
+executor_prompt_content = (executor_prompt.template if isinstance(executor_prompt, (PromptTemplate, ChatPromptTemplate)) else str(executor_prompt))
+db_prompt_content = (db_prompt.template if isinstance(db_prompt, (PromptTemplate, ChatPromptTemplate)) else str(db_prompt))
+backtest_prompt_content = (backtest_prompt.template if isinstance(backtest_prompt, (PromptTemplate, ChatPromptTemplate)) else str(backtest_prompt))
+optimize_prompt_content = (optimize_prompt.template if isinstance(optimize_prompt, (PromptTemplate, ChatPromptTemplate)) else str(optimize_prompt))
+##signal_prompt = signal_prompt.template if isinstance(signal_prompt, PromptTemplate) else str(signal_prompt)
 # Create Agents
 data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=MemorySaver())
 signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
@@ -622,7 +629,7 @@ optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_mod
 ##db_agent = create_react_agent(llm, tools=[store_trade], prompt=db_prompt, checkpointer=MemorySaver())
 ##backtest_agent = create_react_agent(llm, tools=[backtest_strategy], prompt=backtest_prompt, checkpointer=MemorySaver())
 ##optimize_agent = create_react_agent(llm, tools=[optimize_strategy, backtest_strategy], prompt=optimize_prompt, checkpointer=MemorySaver())
-
+#signal_prompt = str(signal_prompt) if not isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else signal_prompt
 # Agent Nodes
 def call_data_agent(state: TradingState) -> TradingState:
     result = data_agent.invoke({"input": f"Fetch data for {state['symbol']}"})
@@ -820,3 +827,4 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
