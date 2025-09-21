@@ -609,7 +609,7 @@ data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=Mem
 signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
 ##signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], prompt=signal_prompt, checkpointer=MemorySaver())
 #risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], prompt=risk_prompt, checkpointer=MemorySaver())
-risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver()))
+risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver())
 executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
 db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
 backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
@@ -817,4 +817,5 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
