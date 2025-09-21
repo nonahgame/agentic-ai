@@ -811,6 +811,8 @@ class TradingState(TypedDict):
     backtest_results: Dict[str, Any]
     next: str
 
+logger.info(f"GROQ_API_KEY: {os.getenv('GROQ_API_KEY')}")
+
 # Initialize LLM
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
@@ -1083,4 +1085,5 @@ if __name__ == "__main__":
             logger.info(f"State: {result}")
             if result.get("order_id"):
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
+
         time.sleep(300)  # Check hourly 3600
