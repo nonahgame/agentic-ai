@@ -606,6 +606,7 @@ optimize_prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
+signal_prompt = signal_prompt.template if isinstance(signal_prompt, PromptTemplate) else str(signal_prompt)
 # Create Agents
 data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=MemorySaver())
 signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
@@ -819,6 +820,3 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
-
-
-
