@@ -24,6 +24,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langsmith import Client
+from langchain_core.messages import SystemMessage
 
 # Load environment variables
 load_dotenv()
@@ -605,13 +606,19 @@ optimize_prompt = ChatPromptTemplate.from_messages([
 
 # Create Agents
 data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=MemorySaver())
-signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], prompt=signal_prompt, checkpointer=MemorySaver())
-risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], prompt=risk_prompt, checkpointer=MemorySaver())
-profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
-executor_agent = create_react_agent(llm, tools=[execute_trade], prompt=executor_prompt, checkpointer=MemorySaver())
-db_agent = create_react_agent(llm, tools=[store_trade], prompt=db_prompt, checkpointer=MemorySaver())
-backtest_agent = create_react_agent(llm, tools=[backtest_strategy], prompt=backtest_prompt, checkpointer=MemorySaver())
-optimize_agent = create_react_agent(llm, tools=[optimize_strategy, backtest_strategy], prompt=optimize_prompt, checkpointer=MemorySaver())
+signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
+##signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], prompt=signal_prompt, checkpointer=MemorySaver())
+#risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], prompt=risk_prompt, checkpointer=MemorySaver())
+risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver()))
+executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
+db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
+backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
+optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
+#profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
+##executor_agent = create_react_agent(llm, tools=[execute_trade], prompt=executor_prompt, checkpointer=MemorySaver())
+##db_agent = create_react_agent(llm, tools=[store_trade], prompt=db_prompt, checkpointer=MemorySaver())
+##backtest_agent = create_react_agent(llm, tools=[backtest_strategy], prompt=backtest_prompt, checkpointer=MemorySaver())
+##optimize_agent = create_react_agent(llm, tools=[optimize_strategy, backtest_strategy], prompt=optimize_prompt, checkpointer=MemorySaver())
 
 # Agent Nodes
 def call_data_agent(state: TradingState) -> TradingState:
@@ -810,3 +817,4 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
