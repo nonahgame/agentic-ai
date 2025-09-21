@@ -1,5 +1,5 @@
 # requirements.txt
-ccxt==4.3.0
+ccxt==4.3.30
 pandas==2.2.0
 pandas_ta==0.3.14b0
 numpy==1.26.0
@@ -9,4 +9,5 @@ sqlite3
 langchain==0.3.0
 langchain-groq==0.2.0
 langgraph==0.2.0
+
 langsmith==0.1.0
