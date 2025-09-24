@@ -28,6 +28,10 @@ from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from typing_extensions import Annotated
 import json
+import warnings
+
+# Suppress pandas_ta warning temporarily
+warnings.filterwarnings("ignore", category=UserWarning, module="pandas_ta")
 
 # Load environment variables
 load_dotenv()
@@ -622,7 +626,7 @@ def extract_prompt_content(prompt):
         logger.error(f"Unsupported prompt type: {type(prompt)}")
         raise ValueError(f"Prompt must be ChatPromptTemplate or PromptTemplate, got {type(prompt)}")
 
-# Create agents
+# Create agents with state_modifier
 try:
     signal_prompt_content = extract_prompt_content(signal_prompt)
     risk_prompt_content = extract_prompt_content(risk_prompt)
@@ -638,43 +642,43 @@ except ValueError as e:
 signal_agent = create_react_agent(
     llm,
     tools=[fetch_crypto_data],
-    messages_modifier=SystemMessage(content=signal_prompt_content),
+    state_modifier=SystemMessage(content=signal_prompt_content),
     checkpointer=MemorySaver()
 )
 risk_agent = create_react_agent(
     llm,
     tools=[get_portfolio_balance],
-    messages_modifier=SystemMessage(content=risk_prompt_content),
+    state_modifier=SystemMessage(content=risk_prompt_content),
     checkpointer=MemorySaver()
 )
 executor_agent = create_react_agent(
     llm,
     tools=[execute_trade],
-    messages_modifier=SystemMessage(content=executor_prompt_content),
+    state_modifier=SystemMessage(content=executor_prompt_content),
     checkpointer=MemorySaver()
 )
 db_agent = create_react_agent(
     llm,
     tools=[store_trade],
-    messages_modifier=SystemMessage(content=db_prompt_content),
+    state_modifier=SystemMessage(content=db_prompt_content),
     checkpointer=MemorySaver()
 )
 backtest_agent = create_react_agent(
     llm,
     tools=[backtest_strategy],
-    messages_modifier=SystemMessage(content=backtest_prompt_content),
+    state_modifier=SystemMessage(content=backtest_prompt_content),
     checkpointer=MemorySaver()
 )
 optimize_agent = create_react_agent(
     llm,
     tools=[optimize_strategy],
-    messages_modifier=SystemMessage(content=optimize_prompt_content),
+    state_modifier=SystemMessage(content=optimize_prompt_content),
     checkpointer=MemorySaver()
 )
 profit_agent = create_react_agent(
     llm,
     tools=[],
-    messages_modifier=SystemMessage(content=profit_prompt_content),
+    state_modifier=SystemMessage(content=profit_prompt_content),
     checkpointer=MemorySaver()
 )
 data_agent = create_react_agent(
@@ -825,7 +829,7 @@ def supervisor(state: TradingState) -> str:
 # Build Graph
 workflow = StateGraph(TradingState)
 workflow.add_node("data", call_data_agent)
-workflow.add_node("signal", call_signal_agent)
+workflow.add_node("signal_node", call_signal_agent)  # Renamed from "signal" to "signal_node"
 workflow.add_node("risk", call_risk_agent)
 workflow.add_node("profit", call_profit_agent)
 workflow.add_node("execute", call_executor_agent)
@@ -834,8 +838,9 @@ workflow.add_node("backtest", call_backtest_agent)
 workflow.add_node("optimize", call_optimize_agent)
 workflow.add_node("supervisor", supervisor)
 
+# Update edges to use the new node name
 workflow.add_edge("data", "supervisor")
-workflow.add_edge("signal", "supervisor")
+workflow.add_edge("signal_node", "supervisor")  # Updated edge
 workflow.add_edge("risk", "supervisor")
 workflow.add_edge("profit", "supervisor")
 workflow.add_edge("execute", "supervisor")
@@ -880,6 +885,7 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
 
 
