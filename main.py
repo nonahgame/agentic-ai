@@ -622,12 +622,12 @@ elif isinstance(risk_prompt, PromptTemplate):
 else:
     risk_prompt_content = str(risk_prompt)
 risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt_content), checkpointer=MemorySaver())
-if isinstance(executo_prompt, ChatPromptTemplate):
-    executo_prompt_content = executo_prompt.messages[0].prompt.template if executo_prompt.messages else str(executo_prompt)
+if isinstance(executor_prompt, ChatPromptTemplate):
+    executor_prompt_content = executor_prompt.messages[0].prompt.template if executor_prompt.messages else str(executor_prompt)
 elif isinstance(executor_prompt, PromptTemplate):
-    executo_prompt_content = executo_prompt.template
+    executor_prompt_content = executor_prompt.template
 else:
-    executo_prompt_content = str(executo_prompt)
+    executor_prompt_content = str(executor_prompt)
 executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
 if isinstance(db_prompt, ChatPromptTemplate):
     db_prompt_content = db_prompt.messages[0].prompt.template if db_prompt.messages else str(db_prompt)
@@ -878,6 +878,7 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
 
 
