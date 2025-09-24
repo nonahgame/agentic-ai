@@ -27,34 +27,35 @@ from langsmith import Client
 from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from typing_extensions import Annotated
+import json
 
 # Load environment variables
 load_dotenv()
 
 # Initialize logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Constants from .env
-SYMBOL = os.getenv("SYMBOL", "SOL/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "5m")
+SYMBOL = os.getenv("SYMBOL", "SYMBOL")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 15.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 5.0))
-AMOUNTS = float(os.getenv("AMOUNTS", 11.01))
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "rnn_bot.db")
-LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-CHAT_ID = os.getenv("CHAT_ID", "")
+LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "LANGSMITH_API_KEY")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID", "CHAT_ID")
 DB_PATH = os.getenv("DB_PATH", "rnn_bot.db")
 UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", 60))  # 5 minutes 300
 BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", 20))  # Number of trades to buffer 10
 
 # Initialize exchange
 exchange = ccxt.binance({
-    'apiKey': os.getenv("BINANCE_API_KEY", ""),
-    'secret': os.getenv("BINANCE_API_SECRET", ""),
+    'apiKey': os.getenv("BINANCE_API_KEY", "BINANCE_API_KEY"),
+    'secret': os.getenv("BINANCE_API_SECRET", "BINANCE_API_SECRET"),
     'enableRateLimit': True,
     'sandbox': True,  # Paper trading
 })
@@ -68,7 +69,7 @@ HEADERS = {
 
 # LangSmith client
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGSMITH_API_KEY", "LANGSMITH_API_KEY")
 langsmith_client = Client()
 
 # Database connection and lock
@@ -606,81 +607,82 @@ optimize_prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
-# Extract prompt content
-if isinstance(signal_prompt, ChatPromptTemplate):
-    # Get the system message content from messages
-    signal_prompt_content = signal_prompt.messages[0].prompt.template if signal_prompt.messages else str(signal_prompt)
-elif isinstance(signal_prompt, PromptTemplate):
-    signal_prompt_content = signal_prompt.template
-else:
-    signal_prompt_content = str(signal_prompt)
-signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt_content), checkpointer=MemorySaver())
-if isinstance(risk_prompt, ChatPromptTemplate):
-    risk_prompt_content = risk_prompt.messages[0].prompt.template if risk_prompt.messages else str(risk_prompt)
-elif isinstance(risk_prompt, PromptTemplate):
-    risk_prompt_content = risk_prompt.template
-else:
-    risk_prompt_content = str(risk_prompt)
-risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt_content), checkpointer=MemorySaver())
-if isinstance(executor_prompt, ChatPromptTemplate):
-    executor_prompt_content = executor_prompt.messages[0].prompt.template if executor_prompt.messages else str(executor_prompt)
-elif isinstance(executor_prompt, PromptTemplate):
-    executor_prompt_content = executor_prompt.template
-else:
-    executor_prompt_content = str(executor_prompt)
-executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
-if isinstance(db_prompt, ChatPromptTemplate):
-    db_prompt_content = db_prompt.messages[0].prompt.template if db_prompt.messages else str(db_prompt)
-elif isinstance(db_prompt, PromptTemplate):
-    db_prompt_content = db_prompt.template
-else:
-    db_prompt_content = str(db_prompt)
-db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
-if isinstance(backtest_prompt, ChatPromptTemplate):
-    backtest_prompt_content = backtest_prompt.messages[0].prompt.template if backtest_prompt.messages else str(backtest_prompt)
-elif isinstance(backtest_prompt, PromptTemplate):
-    backtest_prompt_content = backtest_prompt.template
-else:
-    backtest_prompt_content = str(backtest_prompt)
-backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
-if isinstance(optimize_prompt, ChatPromptTemplate):
-    optimize_prompt_content = optimize_prompt.messages[0].prompt.template if optimize_prompt.messages else str(optimize_prompt)
-elif isinstance(optimize_prompt, PromptTemplate):
-    optimize_prompt_content = optimize_prompt.template
-else:
-    optimize_prompt_content = str(optimize_prompt)
-optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
-if isinstance(profit_prompt, ChatPromptTemplate):
-    profit_prompt_content = profit_prompt.messages[0].prompt.template if profit_prompt.messages else str(profit_prompt)
-elif isinstance(profit_prompt, PromptTemplate):
-    profit_prompt_content = profit_prompt.template
-else:
-    profit_prompt_content = str(profit_prompt)
-profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
-##profit_prompt_content = (profit_prompt.template if isinstance(profit_prompt, (PromptTemplate, ChatPromptTemplate)) else str(profit_prompt))
-#signal_prompt_content = (signal_prompt.template if isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else str(signal_prompt))
-#risk_prompt_content = (risk_prompt.template if isinstance(risk_prompt, (PromptTemplate, ChatPromptTemplate)) else str(risk_prompt))
-#executor_prompt_content = (executor_prompt.template if isinstance(executor_prompt, (PromptTemplate, ChatPromptTemplate)) else str(executor_prompt))
-#db_prompt_content = (db_prompt.template if isinstance(db_prompt, (PromptTemplate, ChatPromptTemplate)) else str(db_prompt))
-#backtest_prompt_content = (backtest_prompt.template if isinstance(backtest_prompt, (PromptTemplate, ChatPromptTemplate)) else str(backtest_prompt))
-#optimize_prompt_content = (optimize_prompt.template if isinstance(optimize_prompt, (PromptTemplate, ChatPromptTemplate)) else str(optimize_prompt))
-##signal_prompt = signal_prompt.template if isinstance(signal_prompt, PromptTemplate) else str(signal_prompt)
+# Extract prompt content safely
+def extract_prompt_content(prompt):
+    if isinstance(prompt, ChatPromptTemplate) and prompt.messages:
+        first_message = prompt.messages[0]
+        if hasattr(first_message, 'prompt') and hasattr(first_message.prompt, 'template'):
+            return first_message.prompt.template
+        else:
+            logger.error(f"Invalid ChatPromptTemplate structure: {prompt}")
+            raise ValueError("ChatPromptTemplate does not contain a valid SystemMessage with template")
+    elif isinstance(prompt, PromptTemplate):
+        return prompt.template
+    else:
+        logger.error(f"Unsupported prompt type: {type(prompt)}")
+        raise ValueError(f"Prompt must be ChatPromptTemplate or PromptTemplate, got {type(prompt)}")
 
-data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=MemorySaver())
-#signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
-##signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], prompt=signal_prompt, checkpointer=MemorySaver())
-#risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], prompt=risk_prompt, checkpointer=MemorySaver())
-#risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver())
-#executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
-#db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
-#backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
-#optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
-#profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
-##executor_agent = create_react_agent(llm, tools=[execute_trade], prompt=executor_prompt, checkpointer=MemorySaver())
-##db_agent = create_react_agent(llm, tools=[store_trade], prompt=db_prompt, checkpointer=MemorySaver())
-##backtest_agent = create_react_agent(llm, tools=[backtest_strategy], prompt=backtest_prompt, checkpointer=MemorySaver())
-##optimize_agent = create_react_agent(llm, tools=[optimize_strategy, backtest_strategy], prompt=optimize_prompt, checkpointer=MemorySaver())
-#signal_prompt = str(signal_prompt) if not isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else signal_prompt
+# Create agents
+try:
+    signal_prompt_content = extract_prompt_content(signal_prompt)
+    risk_prompt_content = extract_prompt_content(risk_prompt)
+    executor_prompt_content = extract_prompt_content(executor_prompt)
+    db_prompt_content = extract_prompt_content(db_prompt)
+    backtest_prompt_content = extract_prompt_content(backtest_prompt)
+    optimize_prompt_content = extract_prompt_content(optimize_prompt)
+    profit_prompt_content = extract_prompt_content(profit_prompt)
+except ValueError as e:
+    logger.critical(f"Prompt extraction error: {e}")
+    exit(1)
+
+signal_agent = create_react_agent(
+    llm,
+    tools=[fetch_crypto_data],
+    messages_modifier=SystemMessage(content=signal_prompt_content),
+    checkpointer=MemorySaver()
+)
+risk_agent = create_react_agent(
+    llm,
+    tools=[get_portfolio_balance],
+    messages_modifier=SystemMessage(content=risk_prompt_content),
+    checkpointer=MemorySaver()
+)
+executor_agent = create_react_agent(
+    llm,
+    tools=[execute_trade],
+    messages_modifier=SystemMessage(content=executor_prompt_content),
+    checkpointer=MemorySaver()
+)
+db_agent = create_react_agent(
+    llm,
+    tools=[store_trade],
+    messages_modifier=SystemMessage(content=db_prompt_content),
+    checkpointer=MemorySaver()
+)
+backtest_agent = create_react_agent(
+    llm,
+    tools=[backtest_strategy],
+    messages_modifier=SystemMessage(content=backtest_prompt_content),
+    checkpointer=MemorySaver()
+)
+optimize_agent = create_react_agent(
+    llm,
+    tools=[optimize_strategy],
+    messages_modifier=SystemMessage(content=optimize_prompt_content),
+    checkpointer=MemorySaver()
+)
+profit_agent = create_react_agent(
+    llm,
+    tools=[],
+    messages_modifier=SystemMessage(content=profit_prompt_content),
+    checkpointer=MemorySaver()
+)
+data_agent = create_react_agent(
+    llm,
+    tools=[fetch_crypto_data],
+    checkpointer=MemorySaver()
+)
+
 # Agent Nodes
 def call_data_agent(state: TradingState) -> TradingState:
     result = data_agent.invoke({"input": f"Fetch data for {state['symbol']}"})
@@ -878,6 +880,7 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
 
 
