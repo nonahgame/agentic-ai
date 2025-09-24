@@ -606,24 +606,75 @@ optimize_prompt = ChatPromptTemplate.from_messages([
     ("human", "{input}")
 ])
 
+# Extract prompt content
+if isinstance(signal_prompt, ChatPromptTemplate):
+    # Get the system message content from messages
+    signal_prompt_content = signal_prompt.messages[0].prompt.template if signal_prompt.messages else str(signal_prompt)
+elif isinstance(signal_prompt, PromptTemplate):
+    signal_prompt_content = signal_prompt.template
+else:
+    signal_prompt_content = str(signal_prompt)
+signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt_content), checkpointer=MemorySaver())
+if isinstance(risk_prompt, ChatPromptTemplate):
+    risk_prompt_content = risk_prompt.messages[0].prompt.template if risk_prompt.messages else str(risk_prompt)
+elif isinstance(risk_prompt, PromptTemplate):
+    risk_prompt_content = risk_prompt.template
+else:
+    risk_prompt_content = str(risk_prompt)
+risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt_content), checkpointer=MemorySaver())
+if isinstance(executo_prompt, ChatPromptTemplate):
+    executo_prompt_content = executo_prompt.messages[0].prompt.template if executo_prompt.messages else str(executo_prompt)
+elif isinstance(executor_prompt, PromptTemplate):
+    executo_prompt_content = executo_prompt.template
+else:
+    executo_prompt_content = str(executo_prompt)
+executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
+if isinstance(db_prompt, ChatPromptTemplate):
+    db_prompt_content = db_prompt.messages[0].prompt.template if db_prompt.messages else str(db_prompt)
+elif isinstance(db_prompt, PromptTemplate):
+    db_prompt_content = db_prompt.template
+else:
+    db_prompt_content = str(db_prompt)
+db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
+if isinstance(backtest_prompt, ChatPromptTemplate):
+    backtest_prompt_content = backtest_prompt.messages[0].prompt.template if backtest_prompt.messages else str(backtest_prompt)
+elif isinstance(backtest_prompt, PromptTemplate):
+    backtest_prompt_content = backtest_prompt.template
+else:
+    backtest_prompt_content = str(backtest_prompt)
+backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
+if isinstance(optimize_prompt, ChatPromptTemplate):
+    optimize_prompt_content = optimize_prompt.messages[0].prompt.template if optimize_prompt.messages else str(optimize_prompt)
+elif isinstance(optimize_prompt, PromptTemplate):
+    optimize_prompt_content = optimize_prompt.template
+else:
+    optimize_prompt_content = str(optimize_prompt)
+optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
+if isinstance(profit_prompt, ChatPromptTemplate):
+    profit_prompt_content = profit_prompt.messages[0].prompt.template if profit_prompt.messages else str(profit_prompt)
+elif isinstance(profit_prompt, PromptTemplate):
+    profit_prompt_content = profit_prompt.template
+else:
+    profit_prompt_content = str(profit_prompt)
+profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
 ##profit_prompt_content = (profit_prompt.template if isinstance(profit_prompt, (PromptTemplate, ChatPromptTemplate)) else str(profit_prompt))
-signal_prompt_content = (signal_prompt.template if isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else str(signal_prompt))
-risk_prompt_content = (risk_prompt.template if isinstance(risk_prompt, (PromptTemplate, ChatPromptTemplate)) else str(risk_prompt))
-executor_prompt_content = (executor_prompt.template if isinstance(executor_prompt, (PromptTemplate, ChatPromptTemplate)) else str(executor_prompt))
-db_prompt_content = (db_prompt.template if isinstance(db_prompt, (PromptTemplate, ChatPromptTemplate)) else str(db_prompt))
-backtest_prompt_content = (backtest_prompt.template if isinstance(backtest_prompt, (PromptTemplate, ChatPromptTemplate)) else str(backtest_prompt))
-optimize_prompt_content = (optimize_prompt.template if isinstance(optimize_prompt, (PromptTemplate, ChatPromptTemplate)) else str(optimize_prompt))
+#signal_prompt_content = (signal_prompt.template if isinstance(signal_prompt, (PromptTemplate, ChatPromptTemplate)) else str(signal_prompt))
+#risk_prompt_content = (risk_prompt.template if isinstance(risk_prompt, (PromptTemplate, ChatPromptTemplate)) else str(risk_prompt))
+#executor_prompt_content = (executor_prompt.template if isinstance(executor_prompt, (PromptTemplate, ChatPromptTemplate)) else str(executor_prompt))
+#db_prompt_content = (db_prompt.template if isinstance(db_prompt, (PromptTemplate, ChatPromptTemplate)) else str(db_prompt))
+#backtest_prompt_content = (backtest_prompt.template if isinstance(backtest_prompt, (PromptTemplate, ChatPromptTemplate)) else str(backtest_prompt))
+#optimize_prompt_content = (optimize_prompt.template if isinstance(optimize_prompt, (PromptTemplate, ChatPromptTemplate)) else str(optimize_prompt))
 ##signal_prompt = signal_prompt.template if isinstance(signal_prompt, PromptTemplate) else str(signal_prompt)
-# Create Agents
+
 data_agent = create_react_agent(llm, tools=[fetch_crypto_data], checkpointer=MemorySaver())
-signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
+#signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], messages_modifier=SystemMessage(content=signal_prompt), checkpointer=MemorySaver())
 ##signal_agent = create_react_agent(llm, tools=[fetch_crypto_data], prompt=signal_prompt, checkpointer=MemorySaver())
 #risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], prompt=risk_prompt, checkpointer=MemorySaver())
-risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver())
-executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
-db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
-backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
-optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
+#risk_agent = create_react_agent(llm, tools=[get_portfolio_balance], messages_modifier=SystemMessage(content=risk_prompt), checkpointer=MemorySaver())
+#executor_agent = create_react_agent(llm, tools=[execute_trade], messages_modifier=SystemMessage(content=executor_prompt), checkpointer=MemorySaver())
+#db_agent = create_react_agent(llm, tools=[store_trade], messages_modifier=SystemMessage(content=db_prompt), checkpointer=MemorySaver())
+#backtest_agent = create_react_agent(llm, tools=[backtest_strategy], messages_modifier=SystemMessage(content=backtest_prompt), checkpointer=MemorySaver())
+#optimize_agent = create_react_agent(llm, tools=[optimize_strategy], messages_modifier=SystemMessage(content=optimize_prompt), checkpointer=MemorySaver())
 #profit_agent = create_react_agent(llm, tools=[], prompt=profit_prompt, checkpointer=MemorySaver())
 ##executor_agent = create_react_agent(llm, tools=[execute_trade], prompt=executor_prompt, checkpointer=MemorySaver())
 ##db_agent = create_react_agent(llm, tools=[store_trade], prompt=db_prompt, checkpointer=MemorySaver())
@@ -827,5 +878,6 @@ if __name__ == "__main__":
                 logger.info(f"Trade executed: {result['signal']} at {result.get('price', 'unknown')}, Order ID: {result['order_id']}")
 
         time.sleep(300)  # Check hourly 3600
+
 
 
