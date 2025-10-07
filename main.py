@@ -16,17 +16,20 @@ import numpy as np
 import ccxt
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage  # Updated import
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate  # Removed SystemMessage from here
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph, END
 from langsmith import Client
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel  # Updated to Pydantic v2
 from typing_extensions import Annotated
 import uvicorn
 import warnings
+import asyncio
+import operator
 
 # Suppress specific pandas_ta warning about pkg_resources
 warnings.filterwarnings(
@@ -34,6 +37,14 @@ warnings.filterwarnings(
     category=UserWarning,
     module="pandas_ta",
     message="pkg_resources is deprecated as an API.*"
+)
+
+# Suppress langgraph pydantic warning
+warnings.filterwarnings(
+    "ignore",
+    category=Warning,
+    module="langgraph.graph",
+    message="As of langchain-core 0.3.0.*"
 )
 
 # Load environment variables
@@ -44,18 +55,18 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 # Constants from .env
-SYMBOL = os.getenv("SYMBOL", "SYMBOL")
-TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
+SYMBOL = os.getenv("SYMBOL", "SOL/USDT")
+TIMEFRAME = os.getenv("TIMEFRAME", "1h")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 15.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 5.0))
-AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
+AMOUNTS = float(os.getenv("AMOUNTS", 0.1))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "rnn_bot.db")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-DB_PATH = os.getenv("DB_PATH", "DB_PATH")
+DB_PATH = os.getenv("DB_PATH", "rnn_bot.db")
 UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", 60))
 BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", 20))
 
@@ -115,7 +126,29 @@ class StrategyRequest(BaseModel):
 class OptimizeRequest(BaseModel):
     strategy_id: str = current_strategy["strategy_id"]
 
-# Database setup function (unchanged)
+# State
+class TradingState(BaseModel):
+    messages: Annotated[List[BaseMessage], operator.add]
+    symbol: str
+    portfolio: Dict[str, Any]
+    indicators: Dict[str, Any]
+    signal: str
+    risk_approved: bool
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    order_id: Optional[str] = None
+    position: Optional[str] = None
+    buy_price: Optional[float] = None
+    last_sell_profit: float
+    total_return_profit: float
+    tracking_enabled: bool
+    tracking_has_buy: bool
+    tracking_buy_price: Optional[float] = None
+    strategy_id: str
+    backtest_results: Dict[str, Any]
+    next: str
+
+# Database setup function
 def setup_database(first_attempt=False):
     global conn
     with db_lock:
@@ -134,8 +167,6 @@ def setup_database(first_attempt=False):
             c = conn.cursor()
             c.execute("PRAGMA synchronous = NORMAL")
             c.execute("PRAGMA journal_mode = WAL")
-
-            # Create tables (trades and strategies)
             c.execute('''
                 CREATE TABLE IF NOT EXISTS trades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,7 +230,6 @@ def setup_database(first_attempt=False):
             logger.error(f"Database setup error: {e}")
             return False
 
-# GitHub upload/download (unchanged)
 def upload_to_github(file_path, file_name):
     try:
         with open(file_path, "rb") as f:
@@ -245,7 +275,6 @@ def download_from_github(file_name, destination_path):
         logger.error(f"Error downloading {file_name}: {e}")
         return False
 
-# Periodic backup as a background task
 async def periodic_db_backup():
     while True:
         try:
@@ -282,18 +311,17 @@ def flush_trade_buffer():
     except Exception as e:
         logger.error(f"Error flushing trade buffer: {e}")
 
-# Tools (simplified for brevity, implement as needed)
+# Tools with docstrings
 @tool
 async def fetch_crypto_data(symbol: str = SYMBOL, timeframe: str = TIMEFRAME, limit: int = 100) -> Dict[str, Any]:
+    """Fetch OHLCV data and calculate technical indicators for a given symbol and timeframe."""
     try:
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        # Add technical indicators (EMA, RSI, MACD, etc.)
         df['ema1'] = ta.ema(df['Close'], length=12)
         df['ema2'] = ta.ema(df['Close'], length=26)
         df['rsi'] = ta.rsi(df['Close'], length=14)
-        # Add more indicators as needed
         latest = df.iloc[-1]
         return {
             "symbol": symbol,
@@ -311,6 +339,7 @@ async def fetch_crypto_data(symbol: str = SYMBOL, timeframe: str = TIMEFRAME, li
 
 @tool
 async def execute_trade(action: str, symbol: str, amount: float, price: float = None) -> Dict[str, Any]:
+    """Execute a buy or sell trade on the specified symbol with the given amount."""
     try:
         market = exchange.load_markets()[symbol]
         quantity = exchange.amount_to_precision(symbol, amount)
@@ -333,6 +362,7 @@ async def execute_trade(action: str, symbol: str, amount: float, price: float = 
 
 @tool
 async def get_portfolio_balance() -> Dict[str, Any]:
+    """Retrieve the current portfolio balance for USDT and the traded asset."""
     try:
         balance = exchange.fetch_balance()
         return {
@@ -345,6 +375,7 @@ async def get_portfolio_balance() -> Dict[str, Any]:
 
 @tool
 async def store_trade(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Store trade data in the SQLite database."""
     global trade_buffer
     try:
         indicators = state.get("indicators", {})
@@ -392,20 +423,105 @@ async def store_trade(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error buffering trade: {e}")
         return {"status": "error", "message": str(e)}
-############################################
-# Agent Prompts (updated to use SystemMessage from langchain_core.messages)
+
+@tool
+async def backtest_strategy(symbol: str, timeframe: str, strategy_params: Dict[str, Any], limit: int = 500) -> Dict[str, Any]:
+    """Backtest a trading strategy on historical data."""
+    try:
+        data = await fetch_crypto_data(symbol, timeframe, limit)
+        if "error" in data:
+            return {"error": data["error"]}
+        df = pd.DataFrame(data["data"])
+        trades = []
+        position = None
+        buy_price = 0
+        total_profit = 0
+        wins = 0
+        total_trades = 0
+
+        for i in range(1, len(df)):
+            indicators = {
+                "close_price": df.iloc[i]["Close"],
+                "ema1": df.iloc[i]["ema1"],
+                "ema2": df.iloc[i]["ema2"],
+                "rsi": df.iloc[i]["rsi"]
+            }
+            state = {
+                "indicators": indicators,
+                "position": position,
+                "buy_price": buy_price,
+                "strategy_id": strategy_params["strategy_id"]
+            }
+            signal = (await signal_agent.invoke({"input": f"Indicators: {indicators}, Position: {position}, Buy Price: {buy_price}, Strategy: {strategy_params}"})).get("signal", "hold")
+            
+            if signal == "buy" and not position:
+                position = "long"
+                buy_price = indicators["close_price"]
+                trades.append({"action": "buy", "price": buy_price, "time": df.iloc[i]["timestamp"]})
+            elif signal == "sell" and position == "long":
+                profit = indicators["close_price"] - buy_price
+                total_profit += profit
+                total_trades += 1
+                if profit > 0:
+                    wins += 1
+                position = None
+                trades.append({"action": "sell", "price": indicators["close_price"], "profit": profit, "time": df.iloc[i]["timestamp"]})
+
+        win_rate = wins / total_trades if total_trades > 0 else 0
+        sharpe_ratio = total_profit / (np.std([t["profit"] for t in trades if "profit" in t]) + 1e-10) if total_trades > 0 else 0
+        return {
+            "strategy_id": strategy_params["strategy_id"],
+            "win_rate": win_rate,
+            "total_profit": total_profit,
+            "sharpe_ratio": sharpe_ratio,
+            "num_trades": total_trades,
+            "trades": trades
+        }
+    except Exception as e:
+        logger.error(f"Error in backtesting: {e}")
+        return {"error": str(e)}
+
+@tool
+async def optimize_strategy(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Optimize trading strategy based on recent trade performance."""
+    global current_strategy
+    try:
+        with db_lock:
+            c = conn.cursor()
+            c.execute("SELECT action, return_profit FROM trades WHERE strategy_id = ? ORDER BY time DESC LIMIT 10",
+                     (current_strategy["strategy_id"],))
+            recent_trades = c.fetchall()
+        losses = sum(1 for action, profit in recent_trades if action == "sell" and profit < 0)
+        win_rate = sum(1 for action, profit in recent_trades if action == "sell" and profit > 0) / len(recent_trades) if recent_trades else 0
+
+        new_strategy = current_strategy.copy()
+        if losses >= 3 or win_rate < 0.5:
+            new_strategy["rsi_buy_threshold"] += 2.0
+            new_strategy["rsi_sell_threshold"] -= 2.0
+            new_strategy["strategy_id"] = f"optimized_{int(time.time())}"
+
+        backtest_result = await backtest_strategy(state["symbol"], TIMEFRAME, new_strategy)
+        if "error" not in backtest_result:
+            current_strategy = new_strategy
+        return {
+            "strategy_id": new_strategy["strategy_id"],
+            "parameters": new_strategy,
+            "win_rate": backtest_result.get("win_rate", 0),
+            "total_profit": backtest_result.get("total_profit", 0),
+            "sharpe_ratio": backtest_result.get("sharpe_ratio", 0)
+        }
+    except Exception as e:
+        logger.error(f"Error in strategy optimization: {e}")
+        return {"error": str(e)}
+
+# Initialize LLM
+llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+
+# Agent Prompts
 signal_prompt = ChatPromptTemplate.from_messages([
     (SystemMessage(content="""You are a crypto trading signal generator. Use these rules with provided strategy parameters:
-    Buy if: (lst_diff > 0.01 and macd_hollow <= {macd_hollow_buy} and stoch_rsi <= 0.01 and stoch_k <= {stoch_k_buy} and stoch_d <= 25.00 and obv <= -1093.00 and rsi < {rsi_buy_threshold})
-    OR (j < d and j < -15.00 and macd < macd_signal and ema1 < ema2 and rsi < 17.00)
-    OR (lst_diff > 0.01 and macd_hollow <= {macd_hollow_buy} and stoch_k <= {stoch_k_buy} and macd < macd_signal and rsi <= {rsi_buy_threshold})
-    OR (supertrend_trend == 'Down' and stoch_rsi <= 0.00 and stoch_k <= 0.00 and stoch_d <= 0.15 and obv <= -13.00 and diff1e < 0.00 and diff2m < 0.00 and diff3k < 0.00).
-    Sell if in position and: (close_price <= stop_loss)
-    OR (close_price >= take_profit)
-    OR (lst_diff < 0.00 and macd_hollow >= {macd_hollow_sell} and stoch_rsi >= 0.99 and stoch_k >= {stoch_k_sell} and stoch_d >= 94.97 and obv >= 1009.00 and diff1e > 0.00)
-    OR (j > d and j > 115.00 and macd > macd_signal and ema1 > ema2 and rsi < {rsi_sell_threshold})
-    OR (lst_diff < 0.00 and macd_hollow >= {macd_hollow_sell} and stoch_k >= {stoch_k_sell} and macd > macd_signal and rsi <= {rsi_sell_threshold})
-    OR (supertrend_trend == 'Up' and stoch_rsi == 1.00 and stoch_k == 100.00 and stoch_d > 90.00 and obv >= 19.00 and diff1e > 0.00 and diff2m > 0.00 and diff3k > 0.00).
+    Buy if: (rsi < {rsi_buy_threshold})
+    Sell if in position and: (rsi > {rsi_sell_threshold} or close_price <= stop_loss or close_price >= take_profit)
     Else, hold. Return JSON: {{\"signal\": \"buy/sell/hold\", \"reason\": \"...\"}}.""".format(**current_strategy))),
     ("human", "{input}")
 ])
@@ -418,7 +534,7 @@ risk_prompt = ChatPromptTemplate.from_messages([
     - Prevent consecutive buys or sells without position.
     - Amount = min(usdt_balance * 0.02 / close_price, usdt_balance / close_price).
     Return JSON: {{\"approved\": bool, \"stop_loss\": float, \"take_profit\": float, \"amount\": float, \"reason\": \"...\"}}.""".format(
-        stop_loss_percent=current_strategy["stop_loss_percent"], 
+        stop_loss_percent=current_strategy["stop_loss_percent"],
         take_profit_percent=current_strategy["take_profit_percent"]))),
     ("human", "{input}")
 ])
@@ -449,20 +565,15 @@ backtest_prompt = ChatPromptTemplate.from_messages([
 ])
 
 optimize_prompt = ChatPromptTemplate.from_messages([
-    (SystemMessage(content="""Optimize trading strategy based on recent performance and market conditions. 
+    (SystemMessage(content="""Optimize trading strategy based on recent performance and market conditions.
     - Analyze last 10 trades for win rate and losses.
     - If 3+ consecutive losses or win rate < 0.5, adjust parameters (e.g., RSI thresholds, stop-loss) based on volatility.
     - Backtest new strategy and store in database.
     Return JSON: {{\"strategy_id\": str, \"parameters\": dict, \"win_rate\": float, \"total_profit\": float, \"sharpe_ratio\": float}}.""")),
     ("human", "{input}")
 ])
-###########################################
 
-# Initialize LLM
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
-
-##################################
-# Create agents with state_modifier (updated to use SystemMessage)
+# Create agents
 try:
     signal_agent = create_react_agent(
         llm,
@@ -514,15 +625,176 @@ try:
 except Exception as e:
     logger.critical(f"Agent creation error: {e}")
     exit(1)
-##################################
+
+# Agent Nodes
+def call_data_agent(state: TradingState) -> TradingState:
+    result = data_agent.invoke({"input": f"Fetch data for {state['symbol']}"})
+    return {
+        "messages": result["messages"],
+        "indicators": result.get("indicators", {}),
+        "portfolio": get_portfolio_balance(),
+        "strategy_id": current_strategy["strategy_id"]
+    }
+
+def call_signal_agent(state: TradingState) -> TradingState:
+    input_data = f"Indicators: {state['indicators']}, Position: {state.get('position')}, Buy Price: {state.get('buy_price')}, Strategy: {current_strategy}"
+    result = signal_agent.invoke({"input": input_data})
+    try:
+        signal_data = eval(result["messages"][-1].content)
+    except:
+        signal_data = {"signal": "hold", "reason": "Error parsing signal"}
+    return {
+        "messages": result["messages"],
+        "signal": signal_data["signal"],
+        "reason": signal_data["reason"]
+    }
+
+def call_risk_agent(state: TradingState) -> TradingState:
+    input_data = f"Signal: {state['signal']}, Portfolio: {state['portfolio']}, Indicators: {state['indicators']}, Position: {state.get('position')}"
+    result = risk_agent.invoke({"input": input_data})
+    try:
+        risk_data = eval(result["messages"][-1].content)
+    except:
+        risk_data = {"approved": False, "reason": "Error parsing risk"}
+    return {
+        "messages": result["messages"],
+        "risk_approved": risk_data["approved"],
+        "stop_loss": risk_data.get("stop_loss"),
+        "take_profit": risk_data.get("take_profit"),
+        "amount": risk_data.get("amount"),
+        "reason": risk_data["reason"]
+    }
+
+def call_profit_agent(state: TradingState) -> TradingState:
+    current_price = state["indicators"].get("close_price", 0)
+    primary_profit = (current_price - state.get("buy_price", 0)) if state["signal"] == "sell" else 0
+    input_data = f"Action: {state['signal']}, Current Price: {current_price}, Primary Profit: {primary_profit}, Tracking: {{enabled: {state.get('tracking_enabled', False)}, has_buy: {state.get('tracking_has_buy', False)}, buy_price: {state.get('tracking_buy_price', 0)}}}"
+    result = profit_agent.invoke({"input": input_data})
+    try:
+        profit_data = eval(result["messages"][-1].content)
+    except:
+        profit_data = {"action": "hold", "return_profit": 0, "tracking_enabled": state.get("tracking_enabled", True), "tracking_has_buy": state.get("tracking_has_buy", False), "total_return_profit": state.get("total_return_profit", 0), "msg": "Error parsing profit"}
+    return {
+        "messages": result["messages"],
+        "signal": profit_data["action"],
+        "return_profit": profit_data["return_profit"],
+        "tracking_enabled": profit_data["tracking_enabled"],
+        "tracking_has_buy": profit_data["tracking_has_buy"],
+        "total_return_profit": profit_data["total_return_profit"],
+        "reason": profit_data["msg"]
+    }
+
+def call_executor_agent(state: TradingState) -> TradingState:
+    if not state["risk_approved"] or state["signal"] == "hold" or not state.get("tracking_enabled", True):
+        return state
+    input_data = f"Execute {state['signal']} on {state['symbol']} for {state['amount']} at {state['indicators']['close_price']}"
+    result = executor_agent.invoke({"input": input_data})
+    try:
+        order_data = eval(result["messages"][-1].content)
+    except:
+        order_data = {"order_id": None, "status": "failed", "filled": 0, "price": state["indicators"]["close_price"]}
+    return {
+        "messages": result["messages"],
+        "order_id": order_data.get("order_id"),
+        "position": "long" if state["signal"] == "buy" else None,
+        "buy_price": state["indicators"]["close_price"] if state["signal"] == "buy" else None
+    }
+
+def call_db_agent(state: TradingState) -> TradingState:
+    input_data = f"Store trade data: {state}"
+    result = db_agent.invoke({"input": input_data})
+    try:
+        db_data = eval(result["messages"][-1].content)
+    except:
+        db_data = {"status": "error", "message": "Error storing trade"}
+    return {
+        "messages": result["messages"],
+        "db_status": db_data["status"],
+        "db_message": db_data["message"]
+    }
+
+def call_backtest_agent(state: TradingState) -> TradingState:
+    input_data = f"Backtest strategy {current_strategy['strategy_id']} on {state['symbol']} with timeframe {TIMEFRAME}"
+    result = backtest_agent.invoke({"input": input_data})
+    try:
+        backtest_data = eval(result["messages"][-1].content)
+    except:
+        backtest_data = {"error": "Error in backtesting"}
+    return {
+        "messages": result["messages"],
+        "backtest_results": backtest_data
+    }
+
+def call_optimize_agent(state: TradingState) -> TradingState:
+    input_data = f"Optimize strategy based on state: {state}"
+    result = optimize_agent.invoke({"input": input_data})
+    try:
+        optimize_data = eval(result["messages"][-1].content)
+    except:
+        optimize_data = {"error": "Error in optimization"}
+    return {
+        "messages": result["messages"],
+        "strategy_id": optimize_data.get("strategy_id", state.get("strategy_id", "default_1")),
+        "backtest_results": optimize_data
+    }
+
+def supervisor(state: TradingState) -> str:
+    if not state.get("indicators"):
+        return "data"
+    if not state.get("signal"):
+        return "signal_node"
+    if state["signal"] != "hold" and not state.get("risk_approved"):
+        return "risk"
+    if state["signal"] != "hold" and state["risk_approved"]:
+        return "profit"
+    if state.get("tracking_enabled", True):
+        return "execute"
+    if state.get("order_id") or state["signal"] != "hold":
+        return "db"
+    if not state.get("backtest_results"):
+        return "backtest"
+    with db_lock:
+        c = conn.cursor()
+        c.execute("SELECT action, return_profit FROM trades WHERE strategy_id = ? ORDER BY time DESC LIMIT 10",
+                 (state.get("strategy_id", "default_1"),))
+        recent_trades = c.fetchall()
+    losses = sum(1 for action, profit in recent_trades if action == "sell" and profit < 0)
+    if losses >= 3:
+        return "optimize"
+    return END
+
+# Build Graph
+workflow = StateGraph(TradingState)
+workflow.add_node("data", call_data_agent)
+workflow.add_node("signal_node", call_signal_agent)
+workflow.add_node("risk", call_risk_agent)
+workflow.add_node("profit", call_profit_agent)
+workflow.add_node("execute", call_executor_agent)
+workflow.add_node("db", call_db_agent)
+workflow.add_node("backtest", call_backtest_agent)
+workflow.add_node("optimize", call_optimize_agent)
+workflow.add_node("supervisor", supervisor)
+
+workflow.add_edge("data", "supervisor")
+workflow.add_edge("signal_node", "supervisor")
+workflow.add_edge("risk", "supervisor")
+workflow.add_edge("profit", "supervisor")
+workflow.add_edge("execute", "supervisor")
+workflow.add_edge("db", "supervisor")
+workflow.add_edge("backtest", "supervisor")
+workflow.add_edge("optimize", "supervisor")
+workflow.set_entry_point("supervisor")
+
+# Compile with memory
+memory = MemorySaver()
+graph_app = workflow.compile(checkpointer=memory)
+
 # FastAPI Endpoints
 @app.on_event("startup")
 async def startup_event():
     if not setup_database(first_attempt=True):
         logger.critical("Failed to initialize database.")
         raise Exception("Database initialization failed")
-    # Start periodic backup as a background task
-    import asyncio
     asyncio.create_task(periodic_db_backup())
 
 @app.get("/health")
@@ -574,10 +846,19 @@ async def run_trading_cycle(background_tasks: BackgroundTasks):
         "tracking_enabled": True,
         "tracking_has_buy": False,
         "tracking_buy_price": None,
-        "strategy_id": current_strategy["strategy_id"]
+        "strategy_id": current_strategy["strategy_id"],
+        "portfolio": {},
+        "indicators": {},
+        "signal": "",
+        "risk_approved": False,
+        "backtest_results": {}
     }
-    result = app.invoke(initial_state, config)
-    return {"status": "success", "state": result}
+    try:
+        result = graph_app.invoke(initial_state, config)
+        return {"status": "success", "state": result}
+    except Exception as e:
+        logger.error(f"Error in trading cycle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Main entry point
 if __name__ == "__main__":
