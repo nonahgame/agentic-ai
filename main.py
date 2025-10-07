@@ -16,9 +16,9 @@ import numpy as np
 import ccxt
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage  # Updated import
 from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate  # Removed SystemMessage from here
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langsmith import Client
@@ -28,8 +28,13 @@ from typing_extensions import Annotated
 import uvicorn
 import warnings
 
-# Suppress pandas_ta warning
-warnings.filterwarnings("ignore", category=UserWarning, module="pandas_ta")
+# Suppress specific pandas_ta warning about pkg_resources
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="pandas_ta",
+    message="pkg_resources is deprecated as an API.*"
+)
 
 # Load environment variables
 load_dotenv()
