@@ -39,18 +39,18 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 # Constants from .env
-SYMBOL = os.getenv("SYMBOL", "SOL/USDT")
-TIMEFRAME = os.getenv("TIMEFRAME", "1h")
+SYMBOL = os.getenv("SYMBOL", "SYMBOL")
+TIMEFRAME = os.getenv("TIMEFRAME", "TIMEFRAME")
 STOP_LOSS_PERCENT = float(os.getenv("STOP_LOSS_PERCENT", 15.0))
 TAKE_PROFIT_PERCENT = float(os.getenv("TAKE_PROFIT_PERCENT", 5.0))
-AMOUNTS = float(os.getenv("AMOUNTS", 0.1))
+AMOUNTS = float(os.getenv("AMOUNTS", "AMOUNTS"))
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
-GITHUB_PATH = os.getenv("GITHUB_PATH", "rnn_bot.db")
+GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-DB_PATH = os.getenv("DB_PATH", "rnn_bot.db")
+DB_PATH = os.getenv("DB_PATH", "DB_PATH")
 UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", 60))
 BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", 20))
 
