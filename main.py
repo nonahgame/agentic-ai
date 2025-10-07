@@ -112,10 +112,10 @@ current_strategy = {
 # FastAPI app
 app = FastAPI(title="Crypto Trading Bot API")
 
-# Pydantic models for request validation
+# Pydantic models
 class TradeRequest(BaseModel):
     symbol: str = SYMBOL
-    amount: float = AMOUNTS
+    amount_usdt: float = AMOUNTS  # Changed to amount_usdt for clarity
     action: str
 
 class StrategyRequest(BaseModel):
@@ -147,6 +147,17 @@ class TradingState(BaseModel):
     strategy_id: str
     backtest_results: Dict[str, Any]
     next: str
+
+# Utility function to convert asset quantity to USDT
+async def convert_to_usdt(symbol: str, quantity: float, exchange: ccxt.Exchange) -> float:
+    """Convert an asset quantity to USDT using the current market price."""
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        price = ticker['last']
+        return quantity * price
+    except Exception as e:
+        logger.error(f"Error converting {quantity} {symbol} to USDT: {e}")
+        return 0.0
 
 # Database setup function
 def setup_database(first_attempt=False):
