@@ -392,10 +392,129 @@ async def store_trade(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error buffering trade: {e}")
         return {"status": "error", "message": str(e)}
+############################################
+# Agent Prompts (updated to use SystemMessage from langchain_core.messages)
+signal_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""You are a crypto trading signal generator. Use these rules with provided strategy parameters:
+    Buy if: (lst_diff > 0.01 and macd_hollow <= {macd_hollow_buy} and stoch_rsi <= 0.01 and stoch_k <= {stoch_k_buy} and stoch_d <= 25.00 and obv <= -1093.00 and rsi < {rsi_buy_threshold})
+    OR (j < d and j < -15.00 and macd < macd_signal and ema1 < ema2 and rsi < 17.00)
+    OR (lst_diff > 0.01 and macd_hollow <= {macd_hollow_buy} and stoch_k <= {stoch_k_buy} and macd < macd_signal and rsi <= {rsi_buy_threshold})
+    OR (supertrend_trend == 'Down' and stoch_rsi <= 0.00 and stoch_k <= 0.00 and stoch_d <= 0.15 and obv <= -13.00 and diff1e < 0.00 and diff2m < 0.00 and diff3k < 0.00).
+    Sell if in position and: (close_price <= stop_loss)
+    OR (close_price >= take_profit)
+    OR (lst_diff < 0.00 and macd_hollow >= {macd_hollow_sell} and stoch_rsi >= 0.99 and stoch_k >= {stoch_k_sell} and stoch_d >= 94.97 and obv >= 1009.00 and diff1e > 0.00)
+    OR (j > d and j > 115.00 and macd > macd_signal and ema1 > ema2 and rsi < {rsi_sell_threshold})
+    OR (lst_diff < 0.00 and macd_hollow >= {macd_hollow_sell} and stoch_k >= {stoch_k_sell} and macd > macd_signal and rsi <= {rsi_sell_threshold})
+    OR (supertrend_trend == 'Up' and stoch_rsi == 1.00 and stoch_k == 100.00 and stoch_d > 90.00 and obv >= 19.00 and diff1e > 0.00 and diff2m > 0.00 and diff3k > 0.00).
+    Else, hold. Return JSON: {{\"signal\": \"buy/sell/hold\", \"reason\": \"...\"}}.""".format(**current_strategy))),
+    ("human", "{input}")
+])
+
+risk_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""You are a risk manager. Validate trades:
+    - Max 2% portfolio risk.
+    - Set stop_loss = buy_price * (1 - {stop_loss_percent}/100).
+    - Set take_profit = buy_price * (1 + {take_profit_percent}/100).
+    - Prevent consecutive buys or sells without position.
+    - Amount = min(usdt_balance * 0.02 / close_price, usdt_balance / close_price).
+    Return JSON: {{\"approved\": bool, \"stop_loss\": float, \"take_profit\": float, \"amount\": float, \"reason\": \"...\"}}.""".format(
+        stop_loss_percent=current_strategy["stop_loss_percent"], 
+        take_profit_percent=current_strategy["take_profit_percent"]))),
+    ("human", "{input}")
+])
+
+profit_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""Implement profit tracking:
+    - If action == buy and last_sell_profit > 0: set tracking_has_buy=True, tracking_buy_price=current_price.
+    - If action == sell and tracking_has_buy: compute return_profit = current_price - tracking_buy_price, update total_return_profit, set tracking_has_buy=False, tracking_enabled=True if last_sell_profit > 0 else False.
+    - If action == sell and not tracking_has_buy: set tracking_enabled based on last_sell_profit.
+    - Pause buys/sells if tracking_enabled=False.
+    Return JSON: {{\"action\": str, \"return_profit\": float, \"tracking_enabled\": bool, \"tracking_has_buy\": bool, \"total_return_profit\": float, \"msg\": \"...\"}}.""")),
+    ("human", "{input}")
+])
+
+executor_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""Execute approved trades via CCXT. Confirm details. Return JSON: {{\"order_id\": str, \"status\": str, \"filled\": float, \"price\": float}}.""")),
+    ("human", "{input}")
+])
+
+db_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""Store trade data and signals in SQLite database. Return JSON: {{\"status\": str, \"message\": str}}.""")),
+    ("human", "{input}")
+])
+
+backtest_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""Backtest a trading strategy on historical data. Return JSON: {{\"strategy_id\": str, \"win_rate\": float, \"total_profit\": float, \"sharpe_ratio\": float, \"num_trades\": int, \"trades\": list}}.""")),
+    ("human", "{input}")
+])
+
+optimize_prompt = ChatPromptTemplate.from_messages([
+    (SystemMessage(content="""Optimize trading strategy based on recent performance and market conditions. 
+    - Analyze last 10 trades for win rate and losses.
+    - If 3+ consecutive losses or win rate < 0.5, adjust parameters (e.g., RSI thresholds, stop-loss) based on volatility.
+    - Backtest new strategy and store in database.
+    Return JSON: {{\"strategy_id\": str, \"parameters\": dict, \"win_rate\": float, \"total_profit\": float, \"sharpe_ratio\": float}}.""")),
+    ("human", "{input}")
+])
+###########################################
 
 # Initialize LLM
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
+##################################
+# Create agents with state_modifier (updated to use SystemMessage)
+try:
+    signal_agent = create_react_agent(
+        llm,
+        tools=[fetch_crypto_data],
+        state_modifier=SystemMessage(content=signal_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    risk_agent = create_react_agent(
+        llm,
+        tools=[get_portfolio_balance],
+        state_modifier=SystemMessage(content=risk_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    executor_agent = create_react_agent(
+        llm,
+        tools=[execute_trade],
+        state_modifier=SystemMessage(content=executor_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    db_agent = create_react_agent(
+        llm,
+        tools=[store_trade],
+        state_modifier=SystemMessage(content=db_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    backtest_agent = create_react_agent(
+        llm,
+        tools=[backtest_strategy],
+        state_modifier=SystemMessage(content=backtest_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    optimize_agent = create_react_agent(
+        llm,
+        tools=[optimize_strategy],
+        state_modifier=SystemMessage(content=optimize_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    profit_agent = create_react_agent(
+        llm,
+        tools=[],
+        state_modifier=SystemMessage(content=profit_prompt.messages[0].content),
+        checkpointer=MemorySaver()
+    )
+    data_agent = create_react_agent(
+        llm,
+        tools=[fetch_crypto_data],
+        checkpointer=MemorySaver()
+    )
+except Exception as e:
+    logger.critical(f"Agent creation error: {e}")
+    exit(1)
+##################################
 # FastAPI Endpoints
 @app.on_event("startup")
 async def startup_event():
