@@ -4,6 +4,7 @@ import logging
 import sqlite3
 import base64
 import requests
+import threading  # Added missing import
 import pytz
 import hashlib
 from datetime import datetime
