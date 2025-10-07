@@ -1,10 +1,10 @@
 # main.py
 import os
 import logging
+import threading
 import sqlite3
 import base64
 import requests
-import threading  # Added missing import
 import pytz
 import hashlib
 from datetime import datetime
@@ -97,8 +97,8 @@ current_strategy = {
     "rsi_sell_threshold": 52.0,
     "stop_loss_percent": STOP_LOSS_PERCENT,
     "take_profit_percent": TAKE_PROFIT_PERCENT,
-    "macd_hollow_buy": -0.00,
-    "macd_hollow_sell": 0.99,
+    "macd_hollow_buy": 0.01,
+    "macd_hollow_sell": 0.01,
     "stoch_k_buy": 0.41,
     "stoch_k_sell": 99.98,
     "strategy_id": "default_1"
@@ -732,6 +732,15 @@ def call_optimize_agent(state: TradingState) -> TradingState:
         "next": END
     }
 
+# Conditional routing functions
+def risk_router(state: TradingState) -> str:
+    """Route from risk node based on state['next']."""
+    return state["next"]
+
+def profit_router(state: TradingState) -> str:
+    """Route from profit node based on state['next']."""
+    return state["next"]
+
 # Build Graph
 workflow = StateGraph(TradingState)
 workflow.add_node("data", call_data_agent)
@@ -748,7 +757,7 @@ workflow.add_edge("data", "signal_node")
 workflow.add_edge("signal_node", "risk")
 workflow.add_conditional_edges(
     "risk",
-    lambda state: state["next"],
+    risk_router,
     {
         "profit": "profit",
         "db": "db"
@@ -756,7 +765,7 @@ workflow.add_conditional_edges(
 )
 workflow.add_conditional_edges(
     "profit",
-    lambda state: state["next"],
+    profit_router,
     {
         "execute": "execute",
         "db": "db"
