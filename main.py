@@ -23,6 +23,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 from langsmith import Client
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from typing_extensions import Annotated
 import uvicorn
@@ -61,7 +62,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
 GITHUB_PATH = os.getenv("GITHUB_PATH", "GITHUB_PATH")
 LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
-DB_PATH = os.getenv("DB_PATH", "rnn_bot.db")
+DB_PATH = os.getenv("DB_PATH", "DB_PATH")
 UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", 60))
 BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", 20))
 
@@ -791,46 +792,93 @@ async def startup_event():
         raise Exception("Database initialization failed")
     asyncio.create_task(periodic_db_backup())
 
+@app.get("/", response_class=RedirectResponse)
+async def root():
+    """Redirect root to Swagger UI."""
+    return RedirectResponse(url="/docs")
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """Display a simple dashboard with strategy and portfolio info."""
+    strategy = await get_current_strategy()
+    portfolio = await get_portfolio_balance()
+    return f"""
+    <html>
+        <head>
+            <title>Crypto Trading Bot Dashboard</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                h1 {{ color: #333; }}
+                pre {{ background: #f4f4f4; padding: 10px; border-radius: 5px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Crypto Trading Bot</h1>
+            <h2>Current Strategy</h2>
+            <pre>{strategy}</pre>
+            <h2>Portfolio</h2>
+            <pre>{portfolio}</pre>
+            <h2>API Documentation</h2>
+            <p><a href="/docs">View Swagger UI</a></p>
+        </body>
+    </html>
+    """
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
 @app.post("/fetch-data")
 async def fetch_data(request: StrategyRequest):
+    logger.info(f"Fetching data for symbol: {request.symbol}, timeframe: {request.timeframe}, limit: {request.limit}")
     result = await fetch_crypto_data(request.symbol, request.timeframe, request.limit)
     if "error" in result:
+        logger.error(f"Fetch data error: {result['error']}")
         raise HTTPException(status_code=500, detail=result["error"])
+    logger.debug(f"Fetch data response: {result}")
     return result
 
 @app.post("/execute-trade")
 async def execute_trade_endpoint(request: TradeRequest):
     if request.action not in ["buy", "sell"]:
+        logger.error(f"Invalid action: {request.action}")
         raise HTTPException(status_code=400, detail="Invalid action")
+    logger.info(f"Executing trade: {request.action} on {request.symbol} for {request.amount_usdt} USDT")
     result = await execute_trade(request.action, request.symbol, request.amount_usdt)
     if "error" in result:
+        logger.error(f"Execute trade error: {result['error']}")
         raise HTTPException(status_code=500, detail=result["error"])
+    logger.debug(f"Execute trade response: {result}")
     return result
 
 @app.get("/portfolio")
 async def get_portfolio():
+    logger.info("Fetching portfolio balance")
     result = await get_portfolio_balance()
     if "error" in result:
+        logger.error(f"Portfolio fetch error: {result['error']}")
         raise HTTPException(status_code=500, detail=result["error"])
+    logger.debug(f"Portfolio response: {result}")
     return result
 
 @app.post("/store-trade")
 async def store_trade_endpoint(state: Dict[str, Any]):
+    logger.info(f"Storing trade: {state}")
     result = await store_trade(state)
     if result["status"] == "error":
+        logger.error(f"Store trade error: {result['message']}")
         raise HTTPException(status_code=500, detail=result["message"])
+    logger.debug(f"Store trade response: {result}")
     return result
 
 @app.get("/current-strategy")
 async def get_current_strategy():
+    logger.info("Fetching current strategy")
     return current_strategy
 
 @app.post("/run-trading-cycle")
 async def run_trading_cycle(background_tasks: BackgroundTasks):
+    logger.info("Starting trading cycle")
     config = {"configurable": {"thread_id": "crypto_trader_1"}}
     initial_state = {
         "symbol": SYMBOL,
@@ -850,6 +898,7 @@ async def run_trading_cycle(background_tasks: BackgroundTasks):
     }
     try:
         result = graph_app.invoke(initial_state, config)
+        logger.debug(f"Trading cycle result: {result}")
         return {"status": "success", "state": result}
     except Exception as e:
         logger.error(f"Error in trading cycle: {e}")
