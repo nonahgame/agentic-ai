@@ -312,6 +312,13 @@ async def fetch_crypto_data(symbol: str = SYMBOL, timeframe: str = TIMEFRAME, li
         df['ema1'] = ta.ema(df['Close'], length=12)
         df['ema2'] = ta.ema(df['Close'], length=26)
         df['rsi'] = ta.rsi(df['Close'], length=14)
+        df['macd'] = ta.macd(df['Close'])['MACD_12_26_9']
+        df['macd_signal'] = ta.macd(df['Close'])['MACDs_12_26_9']
+        df['macd_hist'] = ta.macd(df['Close'])['MACDh_12_26_9']
+        df['stoch'] = ta.stoch(df['High'], df['Low'], df['Close'])
+        df['stoch_k'] = df['stoch']['STOCHk_14_3_3']
+        df['stoch_d'] = df['stoch']['STOCHd_14_3_3']
+        df['obv'] = ta.obv(df['Close'], df['Volume'])
         latest = df.iloc[-1]
         return {
             "symbol": symbol,
